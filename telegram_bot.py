@@ -1,6 +1,7 @@
 import asyncio
 import os
 import sqlite3
+from io import BytesIO
 from typing import Any
 
 from dotenv import load_dotenv
@@ -54,7 +55,8 @@ except ValueError as error:
 
 
 MAX_TURNS = 6
-SAFE_CHUNK_SIZE = 3500
+SAFE_CHUNK_UNITS = 3000
+MIN_CHUNK_UNITS = 200
 DB_PATH = os.getenv("CHAT_MEMORY_DB_PATH", "chat_memory.sqlite3")
 ALLOWED_USER_IDS = parse_allowed_user_ids(os.getenv("TELEGRAM_ALLOWED_USER_IDS"))
 
@@ -129,19 +131,41 @@ def clear_history(chat_id: int) -> None:
         conn.execute("DELETE FROM chat_messages WHERE chat_id = ?", (chat_id,))
 
 
-def split_message(text: str, max_chunk_size: int = SAFE_CHUNK_SIZE) -> list[str]:
-    if len(text) <= max_chunk_size:
+def telegram_text_units(text: str) -> int:
+    return len(text.encode("utf-16-le")) // 2
+
+
+def max_prefix_within_units(text: str, max_units: int) -> int:
+    low = 1
+    high = len(text)
+    best = 1
+
+    while low <= high:
+        mid = (low + high) // 2
+        if telegram_text_units(text[:mid]) <= max_units:
+            best = mid
+            low = mid + 1
+        else:
+            high = mid - 1
+
+    return best
+
+
+def split_message(text: str, max_chunk_units: int = SAFE_CHUNK_UNITS) -> list[str]:
+    if telegram_text_units(text) <= max_chunk_units:
         return [text]
 
     chunks: list[str] = []
     remaining = text
 
-    while len(remaining) > max_chunk_size:
-        split_at = remaining.rfind("\n", 0, max_chunk_size)
-        if split_at == -1:
-            split_at = remaining.rfind(" ", 0, max_chunk_size)
-        if split_at == -1:
-            split_at = max_chunk_size
+    while telegram_text_units(remaining) > max_chunk_units:
+        split_at = max_prefix_within_units(remaining, max_chunk_units)
+
+        newline_split = remaining.rfind("\n", 0, split_at)
+        space_split = remaining.rfind(" ", 0, split_at)
+        natural_split = max(newline_split, space_split)
+        if natural_split > max(1, split_at // 2):
+            split_at = natural_split
 
         chunk = remaining[:split_at].strip()
         if chunk:
@@ -158,18 +182,26 @@ async def reply_long_text(update: Update, text: str) -> None:
     if update.message is None:
         return
 
-    async def send_chunk_safely(chunk: str) -> None:
+    async def send_chunk_safely(chunk: str, chunk_units: int = SAFE_CHUNK_UNITS) -> None:
         try:
             await update.message.reply_text(chunk)
         except BadRequest as error:
             if "message is too long" not in str(error).lower():
                 raise
 
-            if len(chunk) <= 200:
-                raise
+            smaller_units = max(MIN_CHUNK_UNITS, chunk_units // 2)
+            if smaller_units == chunk_units:
+                payload = BytesIO(chunk.encode("utf-8"))
+                payload.name = "response.txt"
+                await update.message.reply_document(
+                    document=payload,
+                    filename="response.txt",
+                    caption="Nội dung quá dài nên mình gửi dưới dạng file.",
+                )
+                return
 
-            for smaller_chunk in split_message(chunk, max_chunk_size=max(200, len(chunk) // 2)):
-                await send_chunk_safely(smaller_chunk)
+            for smaller_chunk in split_message(chunk, max_chunk_units=smaller_units):
+                await send_chunk_safely(smaller_chunk, chunk_units=smaller_units)
 
     for chunk in split_message(text):
         await send_chunk_safely(chunk)
