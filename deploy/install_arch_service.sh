@@ -5,6 +5,7 @@ APP_NAME="deepa-telegram-bot"
 APP_USER="deepa-bot"
 APP_GROUP="deepa-bot"
 APP_DIR="/opt/deepa"
+DATA_DIR="/var/lib/deepa"
 ENV_DIR="/etc/deepa"
 ENV_FILE="${ENV_DIR}/deepa.env"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
@@ -20,6 +21,8 @@ fi
 echo "[3/7] Chuẩn bị thư mục app..."
 sudo mkdir -p "${APP_DIR}"
 sudo chown -R "${USER}:${USER}" "${APP_DIR}"
+sudo mkdir -p "${DATA_DIR}"
+sudo chown -R "${APP_USER}:${APP_GROUP}" "${DATA_DIR}"
 
 echo "[4/7] Copy source code hiện tại lên ${APP_DIR}..."
 rsync -a --delete \
@@ -42,7 +45,11 @@ TAVILY_API_KEY=your_tavily_api_key
 DEEPAGENT_MODEL=openai:gpt-4.1-mini
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 TELEGRAM_ALLOWED_USER_IDS=123456789
+CHAT_MEMORY_DB_PATH=/var/lib/deepa/chat_memory.sqlite3
 EOF
+fi
+if ! sudo grep -q '^CHAT_MEMORY_DB_PATH=' "${ENV_FILE}"; then
+  echo 'CHAT_MEMORY_DB_PATH=/var/lib/deepa/chat_memory.sqlite3' | sudo tee -a "${ENV_FILE}" >/dev/null
 fi
 sudo chown root:root "${ENV_FILE}"
 sudo chmod 600 "${ENV_FILE}"

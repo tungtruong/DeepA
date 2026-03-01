@@ -58,7 +58,7 @@ CHAT_MEMORY_DB_PATH=chat_memory.sqlite3
 Bạn có thể đổi sang path khác (ví dụ trên server):
 
 ```env
-CHAT_MEMORY_DB_PATH=/opt/deepa/chat_memory.sqlite3
+CHAT_MEMORY_DB_PATH=/var/lib/deepa/chat_memory.sqlite3
 ```
 
 Whitelist (khuyến nghị):
