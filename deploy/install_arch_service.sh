@@ -10,7 +10,7 @@ ENV_FILE="${ENV_DIR}/deepa.env"
 SERVICE_FILE="/etc/systemd/system/${APP_NAME}.service"
 
 echo "[1/7] Cài package hệ thống..."
-sudo pacman -Syu --needed --noconfirm python python-pip
+sudo pacman -Syu --needed --noconfirm git rsync python python-pip
 
 echo "[2/7] Tạo user service nếu chưa có..."
 if ! id -u "${APP_USER}" >/dev/null 2>&1; then

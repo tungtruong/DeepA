@@ -54,7 +54,46 @@ except ValueError as error:
 
 chat_histories: dict[int, list[dict[str, str]]] = defaultdict(list)
 MAX_TURNS = 6
+TELEGRAM_MESSAGE_LIMIT = 4096
+SAFE_CHUNK_SIZE = 3900
 ALLOWED_USER_IDS = parse_allowed_user_ids(os.getenv("TELEGRAM_ALLOWED_USER_IDS"))
+
+
+def split_message(text: str, max_chunk_size: int = SAFE_CHUNK_SIZE) -> list[str]:
+    if len(text) <= max_chunk_size:
+        return [text]
+
+    chunks: list[str] = []
+    remaining = text
+
+    while len(remaining) > max_chunk_size:
+        split_at = remaining.rfind("\n", 0, max_chunk_size)
+        if split_at == -1:
+            split_at = remaining.rfind(" ", 0, max_chunk_size)
+        if split_at == -1:
+            split_at = max_chunk_size
+
+        chunk = remaining[:split_at].strip()
+        if chunk:
+            chunks.append(chunk)
+        remaining = remaining[split_at:].lstrip()
+
+    if remaining:
+        chunks.append(remaining)
+
+    return chunks
+
+
+async def reply_long_text(update: Update, text: str) -> None:
+    if update.message is None:
+        return
+
+    if len(text) <= TELEGRAM_MESSAGE_LIMIT:
+        await update.message.reply_text(text)
+        return
+
+    for chunk in split_message(text):
+        await update.message.reply_text(chunk)
 
 
 async def ensure_user_allowed(update: Update) -> bool:
@@ -134,7 +173,7 @@ async def text_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> No
         await update.message.reply_text(f"Lỗi khi gọi agent: {error}")
         return
 
-    await update.message.reply_text(answer)
+    await reply_long_text(update, answer)
 
 
 def main() -> None:
