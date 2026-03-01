@@ -53,8 +53,7 @@ except ValueError as error:
 
 
 MAX_TURNS = 6
-TELEGRAM_MESSAGE_LIMIT = 4096
-SAFE_CHUNK_SIZE = 3900
+SAFE_CHUNK_SIZE = 3500
 DB_PATH = os.getenv("CHAT_MEMORY_DB_PATH", "chat_memory.sqlite3")
 ALLOWED_USER_IDS = parse_allowed_user_ids(os.getenv("TELEGRAM_ALLOWED_USER_IDS"))
 
@@ -156,10 +155,6 @@ def split_message(text: str, max_chunk_size: int = SAFE_CHUNK_SIZE) -> list[str]
 
 async def reply_long_text(update: Update, text: str) -> None:
     if update.message is None:
-        return
-
-    if len(text) <= TELEGRAM_MESSAGE_LIMIT:
-        await update.message.reply_text(text)
         return
 
     for chunk in split_message(text):
