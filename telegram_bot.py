@@ -5,6 +5,7 @@ from typing import Any
 
 from dotenv import load_dotenv
 from telegram import Update
+from telegram.error import BadRequest
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 
 from main import build_agent
@@ -157,8 +158,21 @@ async def reply_long_text(update: Update, text: str) -> None:
     if update.message is None:
         return
 
+    async def send_chunk_safely(chunk: str) -> None:
+        try:
+            await update.message.reply_text(chunk)
+        except BadRequest as error:
+            if "message is too long" not in str(error).lower():
+                raise
+
+            if len(chunk) <= 200:
+                raise
+
+            for smaller_chunk in split_message(chunk, max_chunk_size=max(200, len(chunk) // 2)):
+                await send_chunk_safely(smaller_chunk)
+
     for chunk in split_message(text):
-        await update.message.reply_text(chunk)
+        await send_chunk_safely(chunk)
 
 
 async def ensure_user_allowed(update: Update) -> bool:
