@@ -1,6 +1,6 @@
 import asyncio
 import os
-from collections import defaultdict
+import sqlite3
 from typing import Any
 
 from dotenv import load_dotenv
@@ -52,11 +52,81 @@ except ValueError as error:
     raise RuntimeError(str(error))
 
 
-chat_histories: dict[int, list[dict[str, str]]] = defaultdict(list)
 MAX_TURNS = 6
 TELEGRAM_MESSAGE_LIMIT = 4096
 SAFE_CHUNK_SIZE = 3900
+DB_PATH = os.getenv("CHAT_MEMORY_DB_PATH", "chat_memory.sqlite3")
 ALLOWED_USER_IDS = parse_allowed_user_ids(os.getenv("TELEGRAM_ALLOWED_USER_IDS"))
+
+
+def get_db_connection() -> sqlite3.Connection:
+    return sqlite3.connect(DB_PATH)
+
+
+def init_db() -> None:
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS chat_messages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                chat_id INTEGER NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_chat_messages_chat_id_id ON chat_messages(chat_id, id)"
+        )
+
+
+def load_history(chat_id: int, max_messages: int) -> list[dict[str, str]]:
+    with get_db_connection() as conn:
+        rows = conn.execute(
+            """
+            SELECT role, content
+            FROM chat_messages
+            WHERE chat_id = ?
+            ORDER BY id DESC
+            LIMIT ?
+            """,
+            (chat_id, max_messages),
+        ).fetchall()
+
+    rows.reverse()
+    return [{"role": role, "content": content} for role, content in rows]
+
+
+def append_message(chat_id: int, role: str, content: str) -> None:
+    with get_db_connection() as conn:
+        conn.execute(
+            "INSERT INTO chat_messages (chat_id, role, content) VALUES (?, ?, ?)",
+            (chat_id, role, content),
+        )
+
+
+def trim_history(chat_id: int, max_messages: int) -> None:
+    with get_db_connection() as conn:
+        conn.execute(
+            """
+            DELETE FROM chat_messages
+            WHERE chat_id = ?
+              AND id NOT IN (
+                  SELECT id
+                  FROM chat_messages
+                  WHERE chat_id = ?
+                  ORDER BY id DESC
+                  LIMIT ?
+              )
+            """,
+            (chat_id, chat_id, max_messages),
+        )
+
+
+def clear_history(chat_id: int) -> None:
+    with get_db_connection() as conn:
+        conn.execute("DELETE FROM chat_messages WHERE chat_id = ?", (chat_id,))
 
 
 def split_message(text: str, max_chunk_size: int = SAFE_CHUNK_SIZE) -> list[str]:
@@ -112,17 +182,16 @@ async def ensure_user_allowed(update: Update) -> bool:
 
 
 def ask_agent(chat_id: int, prompt: str) -> str:
-    history = chat_histories[chat_id]
+    max_messages = MAX_TURNS * 2
+    history = load_history(chat_id, max_messages)
     history.append({"role": "user", "content": prompt})
 
     result = AGENT.invoke({"messages": history})
     answer = normalize_content(result["messages"][-1].content)
 
-    history.append({"role": "assistant", "content": answer})
-
-    max_messages = MAX_TURNS * 2
-    if len(history) > max_messages:
-        chat_histories[chat_id] = history[-max_messages:]
+    append_message(chat_id, "user", prompt)
+    append_message(chat_id, "assistant", answer)
+    trim_history(chat_id, max_messages)
 
     return answer
 
@@ -132,7 +201,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     if not await ensure_user_allowed(update):
         return
-    chat_histories[update.effective_chat.id] = []
+    clear_history(update.effective_chat.id)
     await update.message.reply_text(
         f"Bot đã sẵn sàng. Model: {MODEL_NAME}\nGửi tin nhắn để bắt đầu chat."
     )
@@ -143,7 +212,7 @@ async def reset_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
     if not await ensure_user_allowed(update):
         return
-    chat_histories[update.effective_chat.id] = []
+    clear_history(update.effective_chat.id)
     await update.message.reply_text("Đã reset ngữ cảnh chat cho cuộc trò chuyện này.")
 
 
@@ -180,6 +249,8 @@ def main() -> None:
     bot_token = os.getenv("TELEGRAM_BOT_TOKEN")
     if not bot_token:
         raise RuntimeError("Thiếu TELEGRAM_BOT_TOKEN trong file .env")
+
+    init_db()
 
     app = Application.builder().token(bot_token).build()
     app.add_handler(CommandHandler("start", start_command))

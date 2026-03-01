@@ -49,6 +49,18 @@ Nhập câu hỏi vào terminal, agent sẽ xử lý và in kết quả.
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token
 ```
 
+Bot sẽ lưu ngữ cảnh chat vào SQLite để restart vẫn nhớ hội thoại. Mặc định file DB là:
+
+```env
+CHAT_MEMORY_DB_PATH=chat_memory.sqlite3
+```
+
+Bạn có thể đổi sang path khác (ví dụ trên server):
+
+```env
+CHAT_MEMORY_DB_PATH=/opt/deepa/chat_memory.sqlite3
+```
+
 Whitelist (khuyến nghị):
 
 ```env
