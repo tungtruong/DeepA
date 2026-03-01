@@ -1,0 +1,17 @@
+[Unit]
+Description=DeepA Telegram Bot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=deepa-bot
+Group=deepa-bot
+WorkingDirectory=/opt/deepa
+EnvironmentFile=/etc/deepa/deepa.env
+ExecStart=/opt/deepa/.venv/bin/python /opt/deepa/telegram_bot.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

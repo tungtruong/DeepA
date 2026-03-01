@@ -1,0 +1,5 @@
+deepagents
+langchain-openai
+tavily-python
+python-dotenv
+python-telegram-bot
